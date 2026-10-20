@@ -2,6 +2,8 @@
 
 A small, read-only [Model Context Protocol](https://modelcontextprotocol.io) server for **WordPress + WooCommerce**. It lets Claude (or any MCP client) answer questions about a live store — products, orders, sales, and blog posts — over the official REST APIs. No writes, no plugins to install on the store: it talks to the existing WordPress/WooCommerce REST endpoints.
 
+It also ships a **Facebook post review backlog**: drafted posts wait in a local queue — for days if needed — until a human approves them. See [Facebook post review backlog](#facebook-post-review-backlog).
+
 Built and maintained by [WPPoland](https://wppoland.com/en/), a [senior WordPress developer](https://wppoland.com/en/wordpress-developer/) working with WordPress since 2006. If you need this wired into a real store stack, we build [WooCommerce ERP and API integrations](https://wppoland.com/en/woocommerce-erp-integration/) and [enterprise e-commerce architecture](https://wppoland.com/en/enterprise-solutions/) (headless, integrations, AI-ready data).
 
 ## Tools
@@ -13,8 +15,16 @@ Built and maintained by [WPPoland](https://wppoland.com/en/), a [senior WordPres
 | `list_orders` | Recent orders, newest first, optional status filter | yes |
 | `sales_report` | Sales totals for a period (week / month / last_month / year) | yes |
 | `search_posts` | Search published blog posts (public WP REST API) | no |
+| `queue_facebook_post` | Add a drafted Facebook post to the review backlog | no |
+| `list_facebook_posts` | List the backlog (pending by default), oldest first, with `review_day`, `age_days`, `overdue` | no |
+| `get_facebook_post` | One queued post with its full history | no |
+| `update_facebook_post` | Edit a pending post (caption, images, link, schedule, notes) | no |
+| `review_facebook_posts` | Approve / reject / reopen posts by ids, by day, or the whole backlog | no |
+| `mark_facebook_post_published` | Record that approved posts went live | no |
+| `delete_facebook_posts` | Housekeeping: remove approved / rejected / published posts | no |
+| `facebook_review_summary` | Backlog overview: counts, pending posts per day, oldest, overdue | no |
 
-Everything is **read-only**. The server never creates, edits, or deletes anything in the store.
+The store tools are **read-only**. The server never creates, edits, or deletes anything in the store. The `*_facebook_*` tools only touch a local JSON file (see below); they never call Facebook either.
 
 ## Install & build
 
@@ -47,6 +57,34 @@ Set three environment variables:
 Create the WooCommerce keys in **WooCommerce → Settings → Advanced → REST API → Add key** with **Read** permission. `search_posts` works without keys against any public WordPress site.
 
 > The keys are sent to your own store over HTTPS as REST query auth. Use HTTPS, and give the key **Read** access only.
+
+Two optional variables configure the Facebook review backlog:
+
+| Var | Default | Purpose |
+|-----|---------|---------|
+| `FB_REVIEW_QUEUE_PATH` | `~/.woocommerce-mcp/facebook-review-queue.json` | Where the backlog is stored. Point it at a persistent path (a mounted volume in Docker). |
+| `FB_REVIEW_TIMEZONE` | system time zone | IANA zone (e.g. `Asia/Bangkok`) used to stamp the `review_day` of each post. Set it explicitly in Docker, where the system zone is UTC. |
+
+## Facebook post review backlog
+
+Drafts for Facebook (from an agent, a script, or a colleague) go into a queue and wait for a human to approve them. The queue is built for the case where the approver is away for a few days:
+
+- **Nothing expires.** A post stays `pending` until someone decides. There is no auto-approve and no auto-publish; a scheduled time that passes just marks the post `overdue`.
+- **Every post remembers the day it was queued** (`review_day`), so a backlog of several days can be worked day by day, oldest first.
+- **Decisions are batched.** Approve or reject by ids, a whole day (`review_day`), or the entire backlog (`all_pending`). Posts in the wrong state are reported as `skipped`, never abort the batch.
+- **Durable and safe.** State lives in one JSON file, written atomically. A file that fails to parse is never overwritten, so a backlog cannot be lost silently.
+- **Audit trail.** Each post keeps a history (queued, edited, approved, rejected, reopened, published) with timestamps and notes.
+
+Lifecycle: `pending` → `approved` → `published`, or `pending` → `rejected`. `reopen` returns an approved or rejected post to `pending` (for example to change your mind or edit it). Publishing itself is outside this server: whatever posts to Facebook (a Facebook MCP, a scheduler, a human) reads the `approved` posts and reports back with `mark_facebook_post_published`.
+
+A typical catch-up after being away:
+
+1. `facebook_review_summary` — how many days of backlog, how many pending per day, anything overdue.
+2. `list_facebook_posts` with `from_day`/`to_day` (or `overdue_only: true`) — read one day at a time.
+3. `update_facebook_post` to fix a caption, then `review_facebook_posts` with `decision: "approve"` and `review_day` for the good days, or `ids` + `note` for the ones to reject. Pass `scheduled_for` to give overdue posts a new time.
+4. Someone publishes the `approved` posts and calls `mark_facebook_post_published`.
+
+Ask Claude things like *"What Facebook posts are waiting for my review, grouped by day?"*, *"Approve everything queued on 2026-10-18 except the sale post"*, or *"Reject the overdue ones with the note 'promo ended'"*.
 
 ## Use with Claude Desktop / Claude Code
 
@@ -87,7 +125,8 @@ Show HN: [discussion](https://news.ycombinator.com/item?id=48815903)
 ## Verify
 
 ```bash
-npm run check   # builds, then asserts all five tools register (no network/credentials needed)
+npm run check   # builds, asserts every tool registers, then runs the review-queue tests (no network/credentials needed)
+npm test        # builds, then runs the tests only
 ```
 
 ## Notes

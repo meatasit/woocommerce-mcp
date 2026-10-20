@@ -35,6 +35,18 @@
           "isRequired": false,
           "format": "string",
           "isSecret": true
+        },
+        {
+          "name": "FB_REVIEW_QUEUE_PATH",
+          "description": "Path of the JSON file holding the Facebook post review backlog (default ~/.woocommerce-mcp/facebook-review-queue.json)",
+          "isRequired": false,
+          "format": "string"
+        },
+        {
+          "name": "FB_REVIEW_TIMEZONE",
+          "description": "IANA time zone used to stamp review days on queued Facebook posts (default: system time zone)",
+          "isRequired": false,
+          "format": "string"
         }
       ]
     }

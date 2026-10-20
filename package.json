@@ -24,7 +24,8 @@
   },
   "scripts": {
     "build": "tsc",
-    "check": "npm run build && node test/smoke.mjs",
+    "test": "npm run build && node --test \"test/*.test.mjs\"",
+    "check": "npm run build && node test/smoke.mjs && node --test \"test/*.test.mjs\"",
     "start": "node dist/index.js",
     "prepublishOnly": "npm run build"
   },
@@ -35,7 +36,9 @@
     "woocommerce",
     "claude",
     "ai-agents",
-    "rest-api"
+    "rest-api",
+    "facebook",
+    "content-approval"
   ],
   "author": "wppoland.com",
   "homepage": "https://wppoland.com/en/",

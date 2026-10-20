@@ -7,16 +7,26 @@
  * recent orders, a sales report, and blog posts. Read-only by design — it never
  * writes to the store.
  *
+ * It also keeps a local, durable review queue for drafted Facebook posts
+ * (src/facebook-review.ts): drafts wait there — for days if needed — until a
+ * human approves them. The queue lives in a JSON file, not in the store.
+ *
  * Configure with env vars:
  *   WP_URL              e.g. https://shop.example.com   (required)
  *   WC_CONSUMER_KEY     WooCommerce REST API key        (required for wc_* tools)
  *   WC_CONSUMER_SECRET  WooCommerce REST API secret     (required for wc_* tools)
+ *   FB_REVIEW_QUEUE_PATH  queue file (default ~/.woocommerce-mcp/facebook-review-queue.json)
+ *   FB_REVIEW_TIMEZONE    IANA zone used for review days (default: system zone)
  *
  * Built by wppoland.com — WordPress & WooCommerce engineering.
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import { registerFacebookReviewTools } from "./facebook-review-tools.js";
+import { fail, ok, type ToolResult } from "./result.js";
+
+export { ReviewQueue } from "./facebook-review.js";
 
 export const VERSION = "0.1.0";
 
@@ -79,15 +89,11 @@ function wp(cfg: Config, path: string, params: Record<string, string | number | 
   return apiGet(`${cfg.wpUrl}/wp-json/wp/v2/${path}`, params);
 }
 
-type ToolResult = { content: { type: "text"; text: string }[]; isError?: boolean };
-const ok = (data: unknown): ToolResult => ({ content: [{ type: "text", text: JSON.stringify(data, null, 2) }] });
-const fail = (e: unknown): ToolResult => ({
-  content: [{ type: "text", text: `Error: ${e instanceof Error ? e.message : String(e)}` }],
-  isError: true,
-});
-
 export function createServer(): McpServer {
   const server = new McpServer({ name: "woocommerce-mcp", version: VERSION });
+
+  // Local Facebook post review backlog (no store or Facebook access needed).
+  registerFacebookReviewTools(server);
 
   server.registerTool(
     "list_products",
